@@ -1,0 +1,164 @@
+version: "2.2"
+
+services:
+
+  init:
+    image: busybox:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      "chown 990 /pg_data;
+      test ! -d /druid_var/broker_var && mkdir -p /druid_var/broker_var /druid_var/coordinator_var /druid_var/druid_shared /druid_var/historical_var /druid_var/middle_var /druid_var/router_var && chown 1000 -R /druid_var"
+    volumes:
+      - ./metadata_data:/pg_data
+      - ./druid_var:/druid_var
+    restart: 'no'
+
+
+  postgres:
+    container_name: postgres
+    image: postgres:12.16-bullseye
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./metadata_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=FoolishPassword
+      - POSTGRES_USER=druid
+      - POSTGRES_DB=druid
+    depends_on:
+      - init
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # Need 3.5 or later for container nodes
+  zookeeper:
+    container_name: zookeeper
+    image: zookeeper:3.5.10
+    ports:
+      - "2181:2181"
+    environment:
+      - ZOO_MY_ID=1
+    depends_on:
+      - init
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  coordinator:
+    image: apache/druid:27.0.0
+    container_name: coordinator
+    volumes:
+      - ./druid_var/druid_shared:/opt/shared
+      - ./druid_var/coordinator_var:/opt/druid/var
+    depends_on:
+      - init
+      - zookeeper
+      - postgres
+    ports:
+      - "8081:8081"
+    command:
+      - coordinator
+    env_file:
+      - environment
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  broker:
+    image: apache/druid:27.0.0
+    container_name: broker
+    volumes:
+      - ./druid_var/broker_var:/opt/druid/var
+    depends_on:
+      - init
+      - zookeeper
+      - postgres
+      - coordinator
+    ports:
+      - "8082:8082"
+    command:
+      - broker
+    env_file:
+      - environment
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  historical:
+    image: apache/druid:27.0.0
+    container_name: historical
+    volumes:
+      - ./druid_var/druid_shared:/opt/shared
+      - ./druid_var/historical_var:/opt/druid/var
+    depends_on:
+      - init 
+      - zookeeper
+      - postgres
+      - coordinator
+    ports:
+      - "8083:8083"
+    command:
+      - historical
+    env_file:
+      - environment
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  middlemanager:
+    image: apache/druid:27.0.0
+    container_name: middlemanager
+    volumes:
+      - ./druid_var/druid_shared:/opt/shared
+      - ./druid_var/middle_var:/opt/druid/var
+    depends_on:
+      - init 
+      - zookeeper
+      - postgres
+      - coordinator
+    ports:
+      - "8091:8091"
+      - "8100-8105:8100-8105"
+    command:
+      - middleManager
+    env_file:
+      - environment
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  router:
+    image: apache/druid:27.0.0
+    container_name: router
+    volumes:
+      - ./druid_var/router_var:/opt/druid/var
+    depends_on:
+      - init
+      - zookeeper
+      - postgres
+      - coordinator
+    ports:
+      - "8888:8888"
+    command:
+      - router
+    env_file:
+      - environment
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
